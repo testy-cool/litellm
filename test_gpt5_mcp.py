@@ -1,7 +1,6 @@
 import asyncio
 import json
 import re
-import sys
 
 from dotenv import load_dotenv
 from litellm import completion, completion_cost
@@ -24,7 +23,7 @@ VERBOSITY = "low"  # low | medium | high
 # Note: summary parameter is not available in completion() - only in responses()
 
 # --- Debug Options ---
-PRINT_EACH_RESPONSE = False  # Print output after each API call (useful for debugging)
+PRINT_EACH_RESPONSE = True  # Print output after each API call (useful for debugging)
 TOOL_RESULT_PREVIEW_LENGTH = 500  # Max chars to show for non-JSON tool results (0 = show all)
 
 # --- MCP Configuration ---
