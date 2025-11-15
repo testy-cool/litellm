@@ -207,3 +207,178 @@ This enables MCP tool usage with any LiteLLM-supported provider, regardless of n
 #### Auto-execution for require_approval: "never"
 
 Setting require_approval: "never" triggers automatic tool execution, returning the final response in a single API call without additional user interaction.
+
+### Use with External MCP Servers (Direct)
+
+You can use external MCP servers directly with the Responses API by providing the server URL. OpenAI will connect directly to the MCP server.
+
+**Important Requirements:**
+- The MCP server must have a valid SSL/TLS certificate that OpenAI can verify
+- The MCP server must be publicly accessible from OpenAI's infrastructure
+- Supported models: GPT-4o, GPT-4.1, GPT-5 series, and o-series models
+
+<Tabs>
+<TabItem value="python" label="Python SDK">
+
+```python title="External MCP Server Example" showLineNumbers
+import litellm
+
+# Configure external MCP server
+MCP_TOOLS = [
+    {
+        "type": "mcp",
+        "server_label": "my_mcp_server",
+        "server_url": "https://your-mcp-server.com/mcp",
+        # Optional: Add headers if authentication is required
+        # "headers": {
+        #     "Authorization": "Bearer YOUR_TOKEN"
+        # }
+    }
+]
+
+response = litellm.responses(
+    model="gpt-4o",
+    tools=MCP_TOOLS,
+    input="Your query here",
+    stream=False
+)
+
+print(response)
+```
+
+</TabItem>
+</Tabs>
+
+**Troubleshooting SSL Errors:**
+
+If you encounter SSL/TLS certificate verification errors like:
+```
+ServiceUnavailableError: TLS_error:|268435581:SSL routines:OPENSSL_internal:CERTIFICATE_VERIFY_FAILED
+```
+
+This means OpenAI cannot verify the MCP server's SSL certificate. Solutions:
+1. Ensure the MCP server has a valid SSL certificate from a trusted CA
+2. Use the LiteLLM Proxy approach with `server_url="litellm_proxy"` (see above)
+3. Use the manual SDK approach (see below)
+
+### Manual SDK Approach for MCP Tools
+
+For cases where the Responses API cannot connect to your MCP server (e.g., SSL issues, non-public servers, or self-hosted servers), you can manually handle tool discovery and execution:
+
+<Tabs>
+<TabItem value="python-manual" label="Python Manual Approach">
+
+```python title="Manual MCP Integration" showLineNumbers
+import litellm
+import asyncio
+import json
+import re
+from litellm.experimental_mcp_client.client import MCPClient
+from litellm.types.mcp import MCPTransport
+from mcp.types import CallToolRequestParams
+
+def sanitize_tool_name(name):
+    """Convert tool name to match OpenAI pattern ^[a-zA-Z0-9_-]+$"""
+    sanitized = re.sub(r'[^a-zA-Z0-9_-]', '_', name)
+    return sanitized.strip('_')
+
+async def use_mcp_with_litellm(query: str, mcp_server_url: str):
+    """
+    Manually integrate MCP tools with LiteLLM SDK.
+    This approach gives you full control over tool discovery and execution.
+    """
+    # Initialize MCP client
+    mcp_client = MCPClient(
+        server_url=mcp_server_url,
+        transport_type=MCPTransport.http,
+        timeout=60.0
+    )
+
+    async with mcp_client:
+        # Step 1: Discover available tools from MCP server
+        tools_response = await mcp_client.list_tools()
+
+        # Step 2: Convert MCP tools to OpenAI format
+        openai_tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": sanitize_tool_name(tool.name),
+                    "description": tool.description or "",
+                    "parameters": tool.inputSchema
+                }
+            }
+            for tool in tools_response
+        ]
+
+        # Create mapping from sanitized to original names
+        tool_mapping = {
+            sanitize_tool_name(tool.name): tool.name
+            for tool in tools_response
+        }
+
+        # Step 3: First LLM call with tools
+        messages = [{"role": "user", "content": query}]
+        response = litellm.completion(
+            model="gpt-5",
+            messages=messages,
+            tools=openai_tools,
+            tool_choice="auto"
+        )
+
+        # Step 4: If LLM wants to call tools, execute them
+        if response['choices'][0]['message'].get('tool_calls'):
+            messages.append(response['choices'][0]['message'])
+
+            # Execute all tool calls
+            for tool_call in response['choices'][0]['message']['tool_calls']:
+                sanitized_name = tool_call['function']['name']
+                original_name = tool_mapping[sanitized_name]
+                arguments = json.loads(tool_call['function']['arguments'])
+
+                # Call the MCP tool
+                result = await mcp_client.call_tool(
+                    CallToolRequestParams(
+                        name=original_name,
+                        arguments=arguments
+                    )
+                )
+
+                # Add tool result to messages
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call['id'],
+                    "content": str(result.content[0].text)
+                })
+
+            # Step 5: Final LLM call with tool results
+            final_response = litellm.completion(
+                model="gpt-5",
+                messages=messages
+            )
+
+            return final_response['choices'][0]['message']['content']
+        else:
+            return response['choices'][0]['message']['content']
+
+# Example usage
+async def main():
+    result = await use_mcp_with_litellm(
+        query="Search for latest AI news",
+        mcp_server_url="https://your-mcp-server.com/mcp"
+    )
+    print(result)
+
+# Run the async function
+asyncio.run(main())
+```
+
+</TabItem>
+</Tabs>
+
+**When to use the manual approach:**
+- MCP server has SSL certificate issues
+- MCP server is self-hosted or behind a firewall
+- You need fine-grained control over tool execution
+- You want to add custom logic between tool calls
+- You're using non-OpenAI providers that don't support MCP natively
