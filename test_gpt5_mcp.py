@@ -23,6 +23,9 @@ REASONING_EFFORT = "low"  # none | minimal | low | medium | high
 VERBOSITY = "low"  # low | medium | high
 # Note: summary parameter is not available in completion() - only in responses()
 
+# --- Debug Options ---
+PRINT_EACH_RESPONSE = False  # Print output after each API call (useful for debugging)
+
 # --- MCP Configuration ---
 USE_MCP = True
 
@@ -143,15 +146,29 @@ async def execute_mcp_tool_calls(tool_calls, tool_mapping):
                 CallToolRequestParams(name=original_name, arguments=arguments)
             )
 
+            result_content = str(result.content[0].text)
             tool_results.append(
                 {
                     "role": "tool",
                     "tool_call_id": tool_call["id"],
-                    "content": str(result.content[0].text),
+                    "content": result_content,
                 }
             )
 
-            print(f"   ✓ Got {len(str(result.content[0].text))} chars\n")
+            print(f"   ✓ Got {len(result_content)} chars")
+
+            if PRINT_EACH_RESPONSE:
+                print(f"\n   📄 Tool Result:")
+                print(f"   {'-' * 76}")
+                # Print first 500 chars of result
+                preview = result_content[:500]
+                if len(result_content) > 500:
+                    preview += f"\n   ... ({len(result_content) - 500} more chars)"
+                for line in preview.split("\n"):
+                    print(f"   {line}")
+                print(f"   {'-' * 76}")
+
+            print()
 
     return tool_results
 
@@ -184,10 +201,17 @@ async def run_with_mcp():
         verbosity=VERBOSITY,
     )
 
+    if PRINT_EACH_RESPONSE:
+        print("\n" + "=" * 80)
+        print("📋 RESPONSE #1 (Tool Selection):")
+        print("=" * 80)
+        print_response_and_usage(response)
+
     # Check if model wants to use tools
     if not response["choices"][0]["message"].get("tool_calls"):
         print("\n✓ Model responded without using tools\n")
-        print_response_and_usage(response)
+        if not PRINT_EACH_RESPONSE:
+            print_response_and_usage(response)
         return
 
     # Step 3: Execute tool calls
@@ -208,6 +232,11 @@ async def run_with_mcp():
         reasoning_effort=REASONING_EFFORT,
         verbosity=VERBOSITY,
     )
+
+    if PRINT_EACH_RESPONSE:
+        print("\n" + "=" * 80)
+        print("📋 RESPONSE #2 (Final Answer):")
+        print("=" * 80)
 
     print_response_and_usage(final_response)
 
