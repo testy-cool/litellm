@@ -25,6 +25,7 @@ VERBOSITY = "low"  # low | medium | high
 
 # --- Debug Options ---
 PRINT_EACH_RESPONSE = False  # Print output after each API call (useful for debugging)
+TOOL_RESULT_PREVIEW_LENGTH = 500  # Max chars to show for non-JSON tool results (0 = show all)
 
 # --- MCP Configuration ---
 USE_MCP = True
@@ -160,12 +161,24 @@ async def execute_mcp_tool_calls(tool_calls, tool_mapping):
             if PRINT_EACH_RESPONSE:
                 print(f"\n   📄 Tool Result:")
                 print(f"   {'-' * 76}")
-                # Print first 500 chars of result
-                preview = result_content[:500]
-                if len(result_content) > 500:
-                    preview += f"\n   ... ({len(result_content) - 500} more chars)"
-                for line in preview.split("\n"):
-                    print(f"   {line}")
+
+                # Try to parse as JSON and pretty print
+                try:
+                    parsed_json = json.loads(result_content)
+                    formatted = json.dumps(parsed_json, indent=2)
+                    for line in formatted.split("\n"):
+                        print(f"   {line}")
+                except (json.JSONDecodeError, TypeError):
+                    # Not JSON, print as text with truncation
+                    if TOOL_RESULT_PREVIEW_LENGTH > 0 and len(result_content) > TOOL_RESULT_PREVIEW_LENGTH:
+                        preview = result_content[:TOOL_RESULT_PREVIEW_LENGTH]
+                        for line in preview.split("\n"):
+                            print(f"   {line}")
+                        print(f"   ... ({len(result_content) - TOOL_RESULT_PREVIEW_LENGTH} more chars)")
+                    else:
+                        for line in result_content.split("\n"):
+                            print(f"   {line}")
+
                 print(f"   {'-' * 76}")
 
             print()
