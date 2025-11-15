@@ -217,7 +217,7 @@ async def run_with_mcp():
         print("\n" + "=" * 80)
         print("📋 RESPONSE #1 (Tool Selection):")
         print("=" * 80)
-        print_response_and_usage(response)
+        print_response_and_usage(response, response_num=1)
 
     # Check if model wants to use tools
     if not response["choices"][0]["message"].get("tool_calls"):
@@ -250,7 +250,7 @@ async def run_with_mcp():
         print("📋 RESPONSE #2 (Final Answer):")
         print("=" * 80)
 
-    print_response_and_usage(final_response)
+    print_response_and_usage(final_response, response_num=2)
 
 
 def run_without_mcp():
@@ -275,7 +275,7 @@ def run_without_mcp():
     print_response_and_usage(response)
 
 
-def print_response_and_usage(response):
+def print_response_and_usage(response, response_num=None):
     """Print response content and usage statistics."""
     print("\n" + "=" * 80)
     print("🤖 Response:")
@@ -287,7 +287,11 @@ def print_response_and_usage(response):
     if message.get("content"):
         print(message["content"])
     elif message.get("tool_calls"):
-        print("⚠️ Model wants to make more tool calls:")
+        # Show different message depending on context
+        if response_num == 1:
+            print("🔧 Tool calls requested:")
+        else:
+            print("⚠️ Model wants to make additional tool calls:")
         for tc in message["tool_calls"]:
             print(f"  - {tc['function']['name']}: {tc['function']['arguments']}")
     else:
